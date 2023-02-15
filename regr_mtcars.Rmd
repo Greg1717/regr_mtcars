@@ -1,0 +1,406 @@
+---
+title: "Regression Analysis - mtcars"
+output: html_document
+date: "2023-02-15"
+---
+
+# Settings
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(caret)
+library(ggplot2)
+library(lattice)
+df <- mtcars
+```
+
+# Purpose
+
+- Create a kind of template for the future analysis of regression problems, implementing ideas from the books 'Applied Predictive Modeling' and 'Introduction to Statistical Learning'.
+
+# Review Data Set
+
+## Head
+
+```{r}
+head(df)
+```
+
+
+## Dimensions
+
+```{r}
+dim(df)
+```
+
+## Structure
+
+```{r cars}
+str(df)
+```
+
+
+## Summary
+
+```{r}
+summary(df)
+```
+
+
+# Potential Outliers Based on Percentiles
+
+```{r}
+lower_bound <- quantile(df$mpg, 0.025)
+upper_bound <- quantile(df$mpg, 0.975)
+outlier_df <- which(df$mpg < lower_bound | df$mpg > upper_bound)
+df[outlier_df,]
+```
+
+
+
+
+## Remove Predictors with too many NAs (missing data)
+
+```{r echo=TRUE}
+df <- df[,colMeans(is.na(df)) < .9]
+dim(df)
+```
+
+## Near Zero Variance Predictors
+
+The identified near zero variance predictors are the following:
+
+```{r}
+# create a zero variance variable for demonstration purposes
+df$one <- 1
+near_zero_vars <- nearZeroVar(df)
+df[, near_zero_vars]
+```
+
+
+After the exclusion of near-zero-variance predictors the data set looks as follows:
+
+```{r}
+df <- df[, -c(near_zero_vars)]
+remove(near_zero_vars)
+df
+```
+
+
+## Reduce Collinearity
+
+**Collinearity** is the situation where a pair of predictor variables have a substantial correlation with each other. In general, there are good reasons to avoid data with highly correlated predictors as it can result in **highly unstable models** and **degraded predictive performance**.
+
+
+### Plot Correlations
+
+The darker areas in the correlation plot show variables which are correlated with each other.
+```{r echo=TRUE}
+# filter on numeric variables (in this case exclude 'mpg' as it represents the outcome, not a predictor)
+predictors <- df[, -c(1)]
+# iris[, !sapply(iris, is.numeric)]
+# select non_numeric predictors, to be added back later
+predictors_non_numeric <- predictors[, !sapply(predictors, is.numeric)]
+predictors_numeric <- predictors[,sapply(predictors, is.numeric)]
+correlations <- cor(predictors_numeric)
+corrplot::corrplot(correlations, order = "hclust",tl.cex = 0.5)
+```
+
+
+### Filter pairwise correlations
+
+Removing following predictors:
+
+```{r}
+highCorr <- findCorrelation(correlations, cutoff = 0.75)
+remove(correlations)
+predictors_numeric[highCorr]
+```
+
+
+### Remaining predictors
+
+```{r}
+predictors_numeric <- predictors_numeric[, -highCorr]
+remove(highCorr)
+names(predictors_numeric)
+```
+
+### Dataset after removal of predictors
+
+```{r}
+df <- cbind(df[, names(df) %in% names(predictors_numeric)],
+            subset(df, select = "mpg", drop = FALSE))
+df
+```
+
+
+Dimension of dataset after removal of highly correlated predictors:
+
+```{r echo=TRUE}
+dim(df)
+```
+
+
+Review correlation plot again after removal of correlated predictors (reduced collinearity):
+
+```{r echo=TRUE}
+correlations <- cor(predictors)
+corrplot::corrplot(correlations, order = "hclust",tl.cex = 0.5)
+```
+The darker areas should be reduced as a result of having removed correlated predictors.
+
+
+## EDA
+
+### Histogram
+
+#### Base R
+
+```{r}
+hist(x = df$mpg,
+  xlab = "mpg",
+  main = "Histogram of mpg",
+  breaks = sqrt(nrow(df))
+)
+```
+
+
+#### ggplot
+
+```{r}
+ggplot(df) +
+  aes(x = mpg) +
+  geom_histogram(bins = 5L, fill = "#0c4c8a") +
+  theme_minimal()
+```
+
+
+#### lattice
+
+```{r}
+df_lattice <- df
+# convert to factor
+df_lattice$vs <- as.factor(ifelse(test = df_lattice$vs == 0, yes = "v_shaped", no = "straight"))
+df_lattice$am <- as.factor(ifelse(test = df_lattice$am == 0, yes = "automatic", no = "manual"))
+# plot
+lattice::histogram(~mpg | am, data = df_lattice)
+```
+
+
+#### Lattice Density Plot
+
+```{r}
+lattice::densityplot(~mpg | am, 
+                     data = df_lattice, 
+                     groups = vs, 
+                     plot.points = FALSE, 
+                     auto.key = TRUE)
+```
+
+
+### Scatter Plot
+
+#### Base R
+
+```{r}
+plot(x = df$hp, y = df$mpg)
+lm_mpg_hp <- lm(mpg ~ hp, data = df)
+abline(lm_mpg_hp)
+```
+
+#### ggplot
+
+```{r}
+ggplot(data = df_lattice, aes(x = hp, y = mpg, shape = vs, colour = am, size = wt)) +
+  geom_point()
+```
+
+
+#### ggplot - LM
+
+```{r}
+ggplot(data = df_lattice, aes(x = hp, y = mpg)) +
+        geom_point() +
+        stat_smooth(method = lm, se = TRUE)
+```
+
+
+#### pairs()
+
+```{r}
+pairs(df)
+```
+
+
+#### ggpairs()
+
+```{r}
+library(GGally)
+ggpairs(data = df,progress = FALSE)
+```
+
+
+#### lattice
+
+```{r}
+xyplot(mpg ~ hp | am, 
+       data = df_lattice, 
+       main = "Lattie Scatter Plot in R", 
+       type = c("p", "g", "smooth"))
+```
+
+##### SPLOM
+
+```{r}
+splom(df)
+```
+
+
+
+
+### Line Graph
+
+#### Base R
+
+```{r}
+df_sorted_mpg <- df_lattice[order(df_lattice$mpg),]
+plot(1:length(df_sorted_mpg$mpg), y = df_sorted_mpg$mpg)
+lines(x = 1:length(df_sorted_mpg$mpg),
+      y = df_sorted_mpg$mpg, 
+      pch = 18, 
+      col = "blue", 
+      type = "b", 
+      lty = 2)
+# Add a legend to the plot
+legend("topleft", 
+       legend=c("Line 1"),
+       col=c("blue"), 
+       lty = 1:2, 
+       cex=0.8)
+```
+
+
+#### ggplot
+
+```{r}
+ggplot(data = df_sorted_mpg, aes(
+        x = 1:length(df_sorted_mpg$mpg),
+        y = mpg,
+        colour = vs,
+        # group = supp,
+        # fill = xxx, 
+        linetype = am
+)) +
+        geom_line() +
+        ylim(0, max(df_sorted_mpg$mpg) * 1.1) +
+        expand_limits(y = 0) +
+        geom_point()
+```
+
+
+#### lattice
+
+```{r}
+
+```
+
+
+### Box Plot
+
+#### Base R
+
+```{r}
+boxplot(df$mpg,
+  ylab = "mpg"
+)
+```
+
+
+#### ggplot
+
+```{r}
+ggplot(df) +
+  aes(x = "", y = mpg) +
+  geom_boxplot(fill = "#0c4c8a") +
+  theme_minimal()
+```
+
+
+Box Plot Outliers:
+
+```{r}
+out <- boxplot.stats(df$mpg)$out
+out_ind <- which(df$mpg %in% c(out))
+df[out_ind, ]
+```
+
+
+#### lattice
+
+```{r}
+bwplot(mpg ~ am | vs, df_lattice)
+```
+
+
+# Simple Linear Regression (interpretable)
+
+Start with all variables and exclude irrelevant ones.
+
+```{r}
+lm_df <- lm(mpg ~ ., data = df[, -c(5,1,2,7,6)])
+summary(lm_df)
+```
+
+## Diagnostic Plots
+
+```{r}
+par(mfrow=c(2,2)) # Change the panel layout to 2 x 2
+plot(lm_df)
+par(mfrow=c(1,1)) # Change back to 1 x 1
+```
+
+
+# Prediction (less interpretable)
+
+```{r}
+
+```
+
+
+## Split Dataset
+
+```{r}
+# caret::
+```
+
+
+## Preprocessing
+
+```{r}
+
+```
+
+
+## PCA (incl. Centering and Scaling)
+
+```{r}
+# trans <-
+#   caret::preProcess(segData, method = c("BoxCox", "center", "scale", "pca"))
+# Apply the transformations:
+# transformed <- predict(trans, segData)
+```
+
+## Predict
+
+```{r}
+
+```
+
+
+## Compare Prediction vs Actual
+
+```{r}
+
+```
+
