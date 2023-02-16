@@ -2,6 +2,8 @@
 title: "Regression Analysis - mtcars"
 output: html_document
 date: "2023-02-15"
+editor_options: 
+  chunk_output_type: console
 ---
 
 # Settings
@@ -11,6 +13,7 @@ knitr::opts_chunk$set(echo = TRUE)
 library(caret)
 library(ggplot2)
 library(lattice)
+library(doParallel)
 df <- mtcars
 ```
 
@@ -53,7 +56,10 @@ summary(df)
 lower_bound <- quantile(df$mpg, 0.025)
 upper_bound <- quantile(df$mpg, 0.975)
 outlier_df <- which(df$mpg < lower_bound | df$mpg > upper_bound)
+remove(lower_bound)
+remove(upper_bound)
 df[outlier_df,]
+remove(outlier_df)
 ```
 
 
@@ -83,7 +89,7 @@ After the exclusion of near-zero-variance predictors the data set looks as follo
 ```{r}
 df <- df[, -c(near_zero_vars)]
 remove(near_zero_vars)
-df
+head(df)
 ```
 
 
@@ -114,7 +120,7 @@ Removing following predictors:
 ```{r}
 highCorr <- findCorrelation(correlations, cutoff = 0.75)
 remove(correlations)
-predictors_numeric[highCorr]
+head(predictors_numeric[highCorr])
 ```
 
 
@@ -131,7 +137,9 @@ names(predictors_numeric)
 ```{r}
 df <- cbind(df[, names(df) %in% names(predictors_numeric)],
             subset(df, select = "mpg", drop = FALSE))
-df
+remove(predictors_numeric)
+remove(predictors_non_numeric)
+head(df)
 ```
 
 
@@ -147,6 +155,8 @@ Review correlation plot again after removal of correlated predictors (reduced co
 ```{r echo=TRUE}
 correlations <- cor(predictors)
 corrplot::corrplot(correlations, order = "hclust",tl.cex = 0.5)
+remove(correlations)
+remove(predictors)
 ```
 The darker areas should be reduced as a result of having removed correlated predictors.
 
@@ -208,6 +218,24 @@ plot(x = df$hp, y = df$mpg)
 lm_mpg_hp <- lm(mpg ~ hp, data = df)
 abline(lm_mpg_hp)
 ```
+
+
+##### With Quadratic Element
+
+```{r}
+# create quadratic linear model
+lm_mpg_hp <- lm(mpg ~ hp + I(hp^2), data = df)
+# sequence of x variable
+newdat = data.frame(hp = seq(min(df$hp), max(df$hp), length.out = 100))
+# predict
+newdat$pred = predict(lm_mpg_hp, newdata = newdat)
+remove(lm_mpg_hp)
+plot(mpg ~ hp, data = df)
+# plot prediction
+lines(x = newdat$hp, y = newdat$pred)
+remove(newdat)
+```
+
 
 #### ggplot
 
@@ -296,6 +324,8 @@ ggplot(data = df_sorted_mpg, aes(
         ylim(0, max(df_sorted_mpg$mpg) * 1.1) +
         expand_limits(y = 0) +
         geom_point()
+
+remove(df_sorted_mpg)
 ```
 
 
@@ -332,7 +362,9 @@ Box Plot Outliers:
 ```{r}
 out <- boxplot.stats(df$mpg)$out
 out_ind <- which(df$mpg %in% c(out))
+remove(out)
 df[out_ind, ]
+remove(out_ind)
 ```
 
 
@@ -340,10 +372,11 @@ df[out_ind, ]
 
 ```{r}
 bwplot(mpg ~ am | vs, df_lattice)
+remove(df_lattice)
 ```
 
 
-# Simple Linear Regression (interpretable)
+# Linear Regression (interpretable)
 
 Start with all variables and exclude irrelevant ones.
 
@@ -351,6 +384,7 @@ Start with all variables and exclude irrelevant ones.
 lm_df <- lm(mpg ~ ., data = df[, -c(5,1,2,7,6)])
 summary(lm_df)
 ```
+
 
 ## Diagnostic Plots
 
@@ -361,40 +395,214 @@ par(mfrow=c(1,1)) # Change back to 1 x 1
 ```
 
 
-# Prediction (less interpretable)
+### Interpretation of Diagnostic Plots
+
+#### 1. Residuals vs Fitted
+
+This plot shows if residuals have **non-linear patterns**. There could be a non-linear relationship between predictor variables and an outcome variable and the pattern could show up in this plot if the model doesn’t capture the non-linear relationship. If you find equally spread residuals around a horizontal line without distinct patterns, that is a good indication you don’t have non-linear relationships.
+
+
+#### 2. Normal Q-Q
+
+This plot shows if residuals are **normally distributed**. Do residuals follow a straight line well or do they deviate severely? It’s good if residuals are lined well on the straight dashed line.
+
+
+#### 3. Scale-Location
+
+It’s also called Spread-Location plot. This plot shows if residuals are spread equally along the ranges of predictors. This is how you can check the **assumption of equal variance (homoscedasticity)**. It’s good if you see a horizontal line with equally (randomly) spread points.
+
+
+#### 4. Residuals vs Leverage
+
+This plot helps us to find **influential cases** if any. Not all **outliers** are influential in linear regression analysis (whatever outliers mean). Even though data have extreme values, they might not be influential to determine a regression line. That means, the results wouldn’t be much different if we either include or exclude them from analysis. They follow the trend in the majority of cases and they don’t really matter; they are not influential. On the other hand, some cases could be very influential even if they look to be within a reasonable range of the values. They could be extreme cases against a regression line and can alter the results if we exclude them from analysis. Another way to put it is that they don’t get along with the trend in the majority of the cases.
+
+Unlike the other plots, this time patterns are not relevant. We watch out for outlying values at the upper right corner or at the lower right corner. Those spots are the places where cases can be influential against a regression line. Look for cases outside of a dashed line, Cook’s distance. When cases are outside of the Cook’s distance (meaning they have high Cook’s distance scores), the cases are influential to the regression results. The regression results will be altered if we exclude those cases.
+
+
+## Quadratic Linear Regression
 
 ```{r}
-
+lm_df <- lm(mpg ~ wt + I(wt^2) + qsec, data = df)
+summary(lm_df)
 ```
 
+### Plot Prediction vs Actual
+```{r}
+# sequence of x variable
+# sequence of x variable
+pred_df <- data.frame(wt = seq(min(df$wt), max(df$wt), length.out = 100),
+                      qsec = seq(min(df$qsec), max(df$qsec), length.out = 100))
+# predict
+pred_df$pred <- predict(lm_df, newdata = pred_df)
+plot(mpg ~ wt, data = df)
+# plot prediction
+# pred_df <- pred_df[order(pred_df$wt),]
+lines(x = pred_df$wt, y = pred_df$pred, lwd = 1, lty = 2, col = c("blue"))
+# Add a legend to the plot
+legend("topleft", 
+       legend=c("LM Prediction"),
+       col=c("blue"), 
+       lty = 2, 
+       cex=0.8)
+remove(pred_df)
+```
+
+
+## Diagnostic Plots
+
+```{r}
+par(mfrow=c(2,2)) # Change the panel layout to 2 x 2
+plot(lm_df)
+par(mfrow=c(1,1)) # Change back to 1 x 1
+remove(lm_df)
+```
+
+Residuals vs Fitted plot is cleaner now after having considered the quadratic relationship. 
+
+
+# Linear Regression (Caret) 
 
 ## Split Dataset
 
 ```{r}
-# caret::
+index_test <- caret::createDataPartition(df, 
+                           p = 0.75, 
+                           list = FALSE)
+df_train <- df[-index_test,]
+df_test <- df[index_test,]
+remove(index_test)
 ```
 
 
-## Preprocessing
+## Review Preprocessed: PCA
 
 ```{r}
-
+preproc_alg <- caret::preProcess(df_train, method = c("BoxCox", "center", "scale", "pca"))
+df_test_prpr <- stats::predict(preproc_alg, df_train)
+df_test_prpr
 ```
 
 
-## PCA (incl. Centering and Scaling)
+### Loadings
 
 ```{r}
-# trans <-
-#   caret::preProcess(segData, method = c("BoxCox", "center", "scale", "pca"))
-# Apply the transformations:
-# transformed <- predict(trans, segData)
+preproc_alg$rotation
 ```
+
+```{r}
+preproc_alg$std
+```
+
+
+### Scree Plot
+
+```{r}
+df_prcomp <- prcomp(df_train,center = TRUE,scale. = TRUE)
+#calculate total variance explained by each principal component
+var_explained <- df_prcomp$sdev^2 / sum(df_prcomp$sdev^2)
+#create scree plot
+library(ggplot2)
+qplot(c(1:length(var_explained)), var_explained) + 
+  geom_line() + 
+  xlab("Principal Component") + 
+  ylab("Variance Explained") +
+  ggtitle("Scree Plot") +
+  ylim(0, 1)
+remove(var_explained)
+```
+
+
+### PCA plots
+
+
+```{r}
+pcaCharts <- function(x) {
+        x.var <- x$sdev ^ 2
+        x.pvar <- x.var / sum(x.var)
+        print("proportions of variance:")
+        print(x.pvar)
+        par(mfrow = c(2, 2))
+        plot(
+                x.pvar,
+                xlab = "Principal component",
+                ylab = "Proportion of variance explained",
+                ylim = c(0, 1),
+                type = 'b'
+        )
+        plot(
+                cumsum(x.pvar),
+                xlab = "Principal component",
+                ylab = "Cumulative Proportion of variance explained",
+                ylim = c(0, 1),
+                type = 'b'
+        )
+        screeplot(x)
+        screeplot(x, type = "l")
+        par(mfrow = c(1, 1))
+}
+
+pcaCharts(df_prcomp)
+remove(df_prcomp)
+remove(pcaCharts)
+```
+
+
+### SPLOM PCAs (first 3)
+
+```{r}
+df_train$vs_factor <- as.factor(ifelse(df_train$vs == 0, "v_shaped", "straight"))
+panelRange <- extendrange(df_test_prpr[, 1:3])
+splom(as.data.frame(df_test_prpr[, 1:3]),
+      groups = df_train$vs_factor,
+      type = c("p", "g"),
+      as.table = TRUE,
+      auto.key = list(columns = 2),
+      prepanel.limits = function(x) panelRange)
+remove(panelRange)
+```
+
+
+## trainControl() Settings
+
+```{r}
+trainControl()$method
+trainControl()$number
+trainControl()$repeats
+trainControl()$p
+```
+
+
+All settings:
+
+```{r}
+trainControl()
+```
+
+
+## Preprocess and Train
+
+```{r}
+# check CPU in terminal: 'lscpu'
+cl <- makePSOCKcluster(5)
+registerDoParallel(cl)
+
+lm_model_caret <- caret::train(
+        mpg ~ .,
+        data = df_train,
+        preProc = c("BoxCox", "center", "scale", "pca"),
+        method = "lm"
+)
+stopCluster(cl)
+remove(cl)
+lm_model_caret
+```
+
 
 ## Predict
 
 ```{r}
-
+# Apply the transformations:
+# transformed <- predict(trans, segData)
 ```
 
 
