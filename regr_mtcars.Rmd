@@ -1,9 +1,14 @@
 ---
 title: "Regression Analysis - mtcars"
-output: html_document
+output: 
+        html_document:
+                toc: true
+                toc_depth: 2
+                toc_float: true
+                number_sections: true
 date: "2023-02-15"
 editor_options: 
-  chunk_output_type: console
+  chunk_output_type: inline
 ---
 
 # Settings
@@ -50,7 +55,7 @@ summary(df)
 ```
 
 
-# Potential Outliers Based on Percentiles
+## Potential Outliers Based on Percentiles
 
 ```{r}
 lower_bound <- quantile(df$mpg, 0.025)
@@ -153,7 +158,7 @@ dim(df)
 Review correlation plot again after removal of correlated predictors (reduced collinearity):
 
 ```{r echo=TRUE}
-correlations <- cor(predictors)
+correlations <- cor(df[, -c(8)])
 corrplot::corrplot(correlations, order = "hclust",tl.cex = 0.5)
 remove(correlations)
 remove(predictors)
@@ -261,6 +266,15 @@ pairs(df)
 ```
 
 
+#### caret::featurePlot - pairs
+
+```{r}
+caret::featurePlot(x = df[, -5], 
+            y = df$vs, 
+            plot = "pairs")
+```
+
+
 #### ggpairs()
 
 ```{r}
@@ -277,6 +291,19 @@ xyplot(mpg ~ hp | am,
        main = "Lattie Scatter Plot in R", 
        type = c("p", "g", "smooth"))
 ```
+
+#### featurePlot()
+
+```{r}
+suppressWarnings(
+featurePlot(x = df_lattice[, -c(5,6,8)], 
+            y = df_lattice$mpg, 
+            plot = "scatter",
+            type = c("p", "g", "smooth"),
+            layout = c(3, 2))
+)
+```
+
 
 ##### SPLOM
 
@@ -372,9 +399,11 @@ remove(out_ind)
 
 ```{r}
 bwplot(mpg ~ am | vs, df_lattice)
-remove(df_lattice)
+# remove(df_lattice)
 ```
 
+
+***
 
 # Linear Regression (interpretable)
 
@@ -416,7 +445,7 @@ It’s also called Spread-Location plot. This plot shows if residuals are spread
 
 This plot helps us to find **influential cases** if any. Not all **outliers** are influential in linear regression analysis (whatever outliers mean). Even though data have extreme values, they might not be influential to determine a regression line. That means, the results wouldn’t be much different if we either include or exclude them from analysis. They follow the trend in the majority of cases and they don’t really matter; they are not influential. On the other hand, some cases could be very influential even if they look to be within a reasonable range of the values. They could be extreme cases against a regression line and can alter the results if we exclude them from analysis. Another way to put it is that they don’t get along with the trend in the majority of the cases.
 
-Unlike the other plots, this time patterns are not relevant. We watch out for outlying values at the upper right corner or at the lower right corner. Those spots are the places where cases can be influential against a regression line. Look for cases outside of a dashed line, Cook’s distance. When cases are outside of the Cook’s distance (meaning they have high Cook’s distance scores), the cases are influential to the regression results. The regression results will be altered if we exclude those cases.
+Unlike the other plots, this time patterns are not relevant. **We watch out for outlying values at the upper right corner or at the lower right corner.** Those spots are the places where cases can be influential against a regression line. Look for cases outside of a dashed line, Cook’s distance. When cases are outside of the Cook’s distance (meaning they have high Cook’s distance scores), the cases are influential to the regression results. The regression results will be altered if we exclude those cases.
 
 
 ## Quadratic Linear Regression
@@ -426,14 +455,17 @@ lm_df <- lm(mpg ~ wt + I(wt^2) + qsec, data = df)
 summary(lm_df)
 ```
 
+
 ### Plot Prediction vs Actual
+
 ```{r}
-# sequence of x variable
-# sequence of x variable
+# create dataframe with predictions
+# create x input values
 pred_df <- data.frame(wt = seq(min(df$wt), max(df$wt), length.out = 100),
                       qsec = seq(min(df$qsec), max(df$qsec), length.out = 100))
 # predict
 pred_df$pred <- predict(lm_df, newdata = pred_df)
+# plot actual data
 plot(mpg ~ wt, data = df)
 # plot prediction
 # pred_df <- pred_df[order(pred_df$wt),]
@@ -455,31 +487,39 @@ par(mfrow=c(2,2)) # Change the panel layout to 2 x 2
 plot(lm_df)
 par(mfrow=c(1,1)) # Change back to 1 x 1
 remove(lm_df)
+remove(df_lattice)
 ```
 
 Residuals vs Fitted plot is cleaner now after having considered the quadratic relationship. 
 
+
+***
 
 # Linear Regression (Caret) 
 
 ## Split Dataset
 
 ```{r}
-index_test <- caret::createDataPartition(df, 
-                           p = 0.75, 
-                           list = FALSE)
-df_train <- df[-index_test,]
-df_test <- df[index_test,]
-remove(index_test)
+index_train <- caret::createDataPartition(df$mpg,
+                                          p = 0.8,
+                                          list = FALSE)
+df_train <- df[index_train,]
+df_test <- df[-index_train,]
+remove(index_train)
 ```
 
 
 ## Review Preprocessed: PCA
 
 ```{r}
-preproc_alg <- caret::preProcess(df_train, method = c("BoxCox", "center", "scale", "pca"))
-df_test_prpr <- stats::predict(preproc_alg, df_train)
-df_test_prpr
+preproc_alg <- caret::preProcess(df_train,
+                                 thresh = 0.95,
+                                 method = c("BoxCox",
+                                            "center",
+                                            "scale",
+                                            "pca"))
+df_train_prpr <- stats::predict(preproc_alg, df_train)
+head(df_train_prpr)
 ```
 
 
@@ -494,10 +534,19 @@ preproc_alg$std
 ```
 
 
-### Scree Plot
+### Base R PCA Plots
+
+what - the type of plot: "**scree**" produces a bar chart of standard deviations:
 
 ```{r}
-df_prcomp <- prcomp(df_train,center = TRUE,scale. = TRUE)
+df_prcomp <- prcomp(df_train, center = TRUE,scale. = TRUE)
+plot(df_prcomp)
+```
+
+
+### Scree Plot II. - ggplot
+
+```{r}
 #calculate total variance explained by each principal component
 var_explained <- df_prcomp$sdev^2 / sum(df_prcomp$sdev^2)
 #create scree plot
@@ -512,8 +561,18 @@ remove(var_explained)
 ```
 
 
-### PCA plots
+### Scree Plot III. - caret-based
 
+```{r}
+var_explained_caret <-
+        sapply(df_train_prpr, sd) / sum(sapply(df_train_prpr, sd))
+var_explained_caret
+sum(var_explained_caret)
+remove(var_explained_caret)
+```
+
+
+### PCA plots
 
 ```{r}
 pcaCharts <- function(x) {
@@ -551,14 +610,41 @@ remove(pcaCharts)
 
 ```{r}
 df_train$vs_factor <- as.factor(ifelse(df_train$vs == 0, "v_shaped", "straight"))
-panelRange <- extendrange(df_test_prpr[, 1:3])
-splom(as.data.frame(df_test_prpr[, 1:3]),
+panelRange <- extendrange(df_train_prpr[, 1:3])
+library(ellipse)
+upperp <- function(...)
+  {
+    args <- list(...)
+    circ1 <- ellipse(diag(rep(1, 2)), t = 1)
+    panel.xyplot(circ1[,1], circ1[,2],
+                 type = "l",
+                 lty = trellis.par.get("reference.line")$lty,
+                 col = trellis.par.get("reference.line")$col,
+                 lwd = trellis.par.get("reference.line")$lwd)
+    circ2 <- ellipse(diag(rep(1, 2)), t = 2)
+    panel.xyplot(circ2[,1], circ2[,2],
+                 type = "l",
+                 lty = trellis.par.get("reference.line")$lty,
+                 col = trellis.par.get("reference.line")$col,
+                 lwd = trellis.par.get("reference.line")$lwd)
+    circ3 <- ellipse(diag(rep(1, 2)), t = 3)
+    panel.xyplot(circ3[,1], circ3[,2],
+                 type = "l",
+                 lty = trellis.par.get("reference.line")$lty,
+                 col = trellis.par.get("reference.line")$col,
+                 lwd = trellis.par.get("reference.line")$lwd)
+    panel.xyplot(args$x, args$y, groups = args$groups, subscripts = args$subscripts)
+  }
+splom(as.data.frame(df_train_prpr[, 1:3]),
       groups = df_train$vs_factor,
       type = c("p", "g"),
       as.table = TRUE,
+            lower.panel = function(...){}, 
+      upper.panel = upperp,
       auto.key = list(columns = 2),
       prepanel.limits = function(x) panelRange)
 remove(panelRange)
+df_train$vs_factor <- NULL
 ```
 
 
@@ -571,10 +657,8 @@ trainControl()$repeats
 trainControl()$p
 ```
 
-
-All settings:
-
-```{r}
+```{r eval=FALSE, include=FALSE}
+# all train control settings
 trainControl()
 ```
 
@@ -582,16 +666,20 @@ trainControl()
 ## Preprocess and Train
 
 ```{r}
+df_train_sq <- df_train
+df_train_sq$wt2 <- df_train_sq$wt^2
+
 # check CPU in terminal: 'lscpu'
 cl <- makePSOCKcluster(5)
 registerDoParallel(cl)
 
 lm_model_caret <- caret::train(
         mpg ~ .,
-        data = df_train,
+        data = df_train_sq,
         preProc = c("BoxCox", "center", "scale", "pca"),
         method = "lm"
 )
+
 stopCluster(cl)
 remove(cl)
 lm_model_caret
@@ -601,14 +689,68 @@ lm_model_caret
 ## Predict
 
 ```{r}
+# insert quadratic element in df_test (in line with df_train)
+df_test$wt2 <- df_test$wt^2
 # Apply the transformations:
-# transformed <- predict(trans, segData)
+predicted <- predict(lm_model_caret, df_test)
+df_test$observed <- df_test$mpg
+df_test$predicted <- round(predicted, 1)
+df_test$residual <- round(df_test$predicted - df_test$observed, 1)
+df_test[, c("predicted", "observed", "residual")]
+```
+
+## Results
+
+### Training Set
+```{r}
+caret::R2(pred = predict(lm_model_caret, df_train_sq), 
+          obs = df_train_sq$mpg)
+```
+
+```{r}
+caret::RMSE(pred = predict(lm_model_caret, df_train_sq), 
+          obs = df_train_sq$mpg)
 ```
 
 
-## Compare Prediction vs Actual
+### Test Set
+```{r}
+caret::R2(pred = df_test$predicted, 
+          obs = df_test$observed)
+```
 
 ```{r}
+caret::RMSE(pred = df_test$predicted, 
+            obs = df_test$observed)
+```
 
+
+## Compare Prediction vs Observed
+
+### Plot Predicted vs Observed
+
+```{r}
+plot(x = df_test$predicted,
+     y = df_test$observed)
+abline(a=0, b=1)
+```
+
+
+### Plot Using Model
+
+```{r}
+plot(x = predict(lm_model_caret, df_test),
+     y = df_test$observed)
+abline(a=0, b=1)
+```
+
+
+### ggplot
+
+```{r}
+ggplot(df_test, aes(x = predict(lm_model_caret, df_test), y = df_test$observed)) +
+        geom_point() +
+        geom_abline(intercept = 0, slope = 1) +
+        labs(x = 'Predicted Values', y = 'Actual Values', title = 'Predicted vs. Actual Values')
 ```
 
