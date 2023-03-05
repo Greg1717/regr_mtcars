@@ -41,6 +41,7 @@ head(df)
 dim(df)
 ```
 
+
 ## Structure
 
 ```{r cars}
@@ -66,8 +67,6 @@ remove(upper_bound)
 df[outlier_df,]
 remove(outlier_df)
 ```
-
-
 
 
 ## Remove Predictors with too many NAs (missing data)
